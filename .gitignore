@@ -1,0 +1,5 @@
+/target
+/download
+/voicevox_core
+*.wav
+/tohoku-tts-voicevox

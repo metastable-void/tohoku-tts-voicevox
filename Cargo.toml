@@ -1,0 +1,11 @@
+[package]
+name = "tohoku-tts-voicevox"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+vvcore = "0.0.2"
+
+[profile.release]
+rpath = true
