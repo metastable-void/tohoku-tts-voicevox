@@ -175,11 +175,11 @@ impl SynthesisVariant {
                         }
 
                         if j == 0 {
-                            mora.pitch = avg_pitch * 0.95;
+                            mora.pitch = avg_pitch * 0.96;
                         } else if j < accent {
-                            mora.pitch = avg_pitch * 1.04;
+                            mora.pitch = avg_pitch * 1.03;
                         } else if j == accent {
-                            mora.pitch = avg_pitch * 1.05;
+                            mora.pitch = avg_pitch * 1.04;
                         } else {
                             mora.pitch = avg_pitch * 0.95;
                         }
