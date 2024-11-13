@@ -188,7 +188,7 @@ impl SynthesisVariant {
                             if accent_phrase.is_interrogative {
                                 mora.pitch *= 1.02;
                             } else {
-                                mora.pitch *= 0.96;
+                                mora.pitch *= 0.99;
                             }
                         }
                         accent_phrase.moras[j] = mora;
