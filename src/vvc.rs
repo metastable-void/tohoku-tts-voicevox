@@ -86,6 +86,12 @@ impl SynthesisVariant {
                     let pitches = accent_phrase.moras.iter().map(|m| m.pitch).filter(|pitch| *pitch != 0.0).collect::<Vec<f64>>();
                     assert!(pitches.len() > 0);
                     let avg_pitch = pitches.iter().sum::<f64>() / pitches.len() as f64;
+                    let last_accent_phrase = i == accent_phrases_len - 1;
+                    let avg_pitch = if last_accent_phrase {
+                        avg_pitch * 0.97
+                    } else {
+                        avg_pitch
+                    };
 
                     let accent = (accent_phrase.accent - 1) as usize; // originally 1-indexed
                     for j in 0..accent_phrase.moras.len() {
@@ -146,6 +152,12 @@ impl SynthesisVariant {
                     let pitches = accent_phrase.moras.iter().map(|m| m.pitch).filter(|pitch| *pitch != 0.0).collect::<Vec<f64>>();
                     assert!(pitches.len() > 0);
                     let avg_pitch = pitches.iter().sum::<f64>() / pitches.len() as f64;
+                    let last_accent_phrase = i == accent_phrases_len - 1;
+                    let avg_pitch = if last_accent_phrase {
+                        avg_pitch * 0.97
+                    } else {
+                        avg_pitch
+                    };
 
                     let accent = (accent_phrase.moras.len() - 1) as usize;
                     for j in 0..accent_phrase.moras.len() {
