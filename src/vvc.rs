@@ -68,7 +68,7 @@ impl SynthesisVariant {
     }
     fn preprocess_audio_query(&self, query: types::AudioQuery) -> types::AudioQuery {
         let unvoiced_vowels = vec!["A", "I", "U", "E", "O"];
-        let voiced_consonants = vec!["g", "z", "d", "b"];
+        let voiced_consonants = vec!["g", "z", "d", "b", "n"];
 
         let mut query = query.clone();
         query.speed_scale = 1.1;
@@ -79,7 +79,9 @@ impl SynthesisVariant {
         match self {
             Self::Northern => {
                 let mut accent_phrases = query.accent_phrases.clone();
-                for accent_phrase in accent_phrases.iter_mut() {
+                for i in 0..accent_phrases.len() {
+                    let accent_phrases_len = accent_phrases.len();
+                    let accent_phrase = &mut accent_phrases[i];
                     assert!(accent_phrase.moras.len() > 0);
                     let pitches = accent_phrase.moras.iter().map(|m| m.pitch).filter(|pitch| *pitch != 0.0).collect::<Vec<f64>>();
                     assert!(pitches.len() > 0);
@@ -109,7 +111,8 @@ impl SynthesisVariant {
                                 mora.vowel = mora.vowel.to_uppercase();
                             }
                         }
-                        if j == accent_phrase.moras.len() - 1 {
+                        let last_mora = (accent_phrase.moras.len() - 1) == j;
+                        if last_mora {
                             mora.vowel_length *= 1.75;
                         }
 
@@ -120,6 +123,14 @@ impl SynthesisVariant {
                         } else {
                             mora.pitch = avg_pitch;
                         }
+                        if i == accent_phrases_len - 1 && last_mora {
+                            mora.vowel_length *= 1.25;
+                            if accent_phrase.is_interrogative {
+                                mora.pitch *= 1.02;
+                            } else {
+                                mora.pitch *= 0.96;
+                            }
+                        }
                         accent_phrase.moras[j] = mora;
                     }
                 }
@@ -128,7 +139,9 @@ impl SynthesisVariant {
             },
             Self::Southern => {
                 let mut accent_phrases = query.accent_phrases.clone();
-                for accent_phrase in accent_phrases.iter_mut() {
+                for i in 0..accent_phrases.len() {
+                    let accent_phrases_len = accent_phrases.len();
+                    let accent_phrase = &mut accent_phrases[i];
                     assert!(accent_phrase.moras.len() > 0);
                     let pitches = accent_phrase.moras.iter().map(|m| m.pitch).filter(|pitch| *pitch != 0.0).collect::<Vec<f64>>();
                     assert!(pitches.len() > 0);
@@ -138,6 +151,7 @@ impl SynthesisVariant {
                     for j in 0..accent_phrase.moras.len() {
                         let mut mora = accent_phrase.moras[j].clone();
                         let next_mora = j + 1;
+                        let mut next_unvoiced = false;
                         if next_mora < accent_phrase.moras.len() {
                             let next_mora = accent_phrase.moras[next_mora].clone();
                             if let Some(consonant) = &next_mora.consonant {
@@ -147,11 +161,16 @@ impl SynthesisVariant {
                                    }
                                 }
                             }
+                            if unvoiced_vowels.contains(&next_mora.vowel.as_str()) {
+                                next_unvoiced = true;
+                            }
                             if voiced_consonants.contains(&next_mora.vowel.as_str()) {
                                 mora.vowel = mora.vowel.to_uppercase();
                             }
                         }
-                        if j == accent_phrase.moras.len() - 1 {
+
+                        let last_mora = j == (accent_phrase.moras.len() - 1) || next_unvoiced && j == accent_phrase.moras.len() - 2;
+                        if last_mora {
                             mora.vowel_length *= 1.75;
                         }
 
@@ -163,6 +182,14 @@ impl SynthesisVariant {
                             mora.pitch = avg_pitch * 1.05;
                         } else {
                             mora.pitch = avg_pitch * 0.95;
+                        }
+                        if i == accent_phrases_len - 1 && last_mora {
+                            mora.vowel_length *= 1.25;
+                            if accent_phrase.is_interrogative {
+                                mora.pitch *= 1.02;
+                            } else {
+                                mora.pitch *= 0.96;
+                            }
                         }
                         accent_phrase.moras[j] = mora;
                     }
