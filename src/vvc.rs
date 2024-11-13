@@ -8,6 +8,8 @@ use tokio::sync::oneshot;
 use std::path::Path;
 use std::fmt::Debug;
 
+use clap::ValueEnum;
+
 use crate::types;
 use crate::error::*;
 use crate::EngineErrorDescription;
@@ -49,15 +51,126 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 pub enum SynthesisVariant {
     Northern,
     Southern,
 }
 
 impl SynthesisVariant {
+    fn make_voiced_consonant(&self, consonant: &str) -> Option<String> {
+        match consonant {
+            "k" => Some("g".to_string()),
+            "s" => Some("z".to_string()),
+            "t" => Some("d".to_string()),
+            _ => Some(consonant.to_string()),
+        }
+    }
     fn preprocess_audio_query(&self, query: types::AudioQuery) -> types::AudioQuery {
-        query // TODO: Implement
+        let unvoiced_vowels = vec!["A", "I", "U", "E", "O"];
+        let voiced_consonants = vec!["g", "z", "d", "b"];
+
+        let mut query = query.clone();
+        query.speed_scale = 1.1;
+        query.pitch_scale = 0.0;
+        query.intonation_scale = 0.9;
+        query.volume_scale = 1.0;
+
+        match self {
+            Self::Northern => {
+                let mut accent_phrases = query.accent_phrases.clone();
+                for accent_phrase in accent_phrases.iter_mut() {
+                    assert!(accent_phrase.moras.len() > 0);
+                    let pitches = accent_phrase.moras.iter().map(|m| m.pitch).filter(|pitch| *pitch != 0.0).collect::<Vec<f64>>();
+                    assert!(pitches.len() > 0);
+                    let avg_pitch = pitches.iter().sum::<f64>() / pitches.len() as f64;
+
+                    let accent = (accent_phrase.accent - 1) as usize; // originally 1-indexed
+                    for j in 0..accent_phrase.moras.len() {
+                        let mut mora = accent_phrase.moras[j].clone();
+                        if unvoiced_vowels.contains(&mora.vowel.as_str()) {
+                            mora.vowel = mora.vowel.to_lowercase();
+                            mora.vowel_length *= 1.5;
+                            if let Some(len) = &mora.consonant_length {
+                                mora.consonant_length = Some(len * 0.6);
+                            }
+                        }
+                        let next_mora = j + 1;
+                        if next_mora < accent_phrase.moras.len() {
+                            let next_mora = accent_phrase.moras[next_mora].clone();
+                            if let Some(consonant) = &next_mora.consonant {
+                                if voiced_consonants.contains(&consonant.as_str()) {
+                                   if let Some(consonant) = &mora.consonant {
+                                       mora.consonant = self.make_voiced_consonant(consonant);
+                                   }
+                                }
+                            }
+                            if voiced_consonants.contains(&next_mora.vowel.as_str()) {
+                                mora.vowel = mora.vowel.to_uppercase();
+                            }
+                        }
+                        if j == accent_phrase.moras.len() - 1 {
+                            mora.vowel_length *= 1.75;
+                        }
+
+                        if j < accent {
+                            mora.pitch = avg_pitch * 0.95;
+                        } else if j == accent {
+                            mora.pitch = avg_pitch * 1.07;
+                        } else {
+                            mora.pitch = avg_pitch;
+                        }
+                        accent_phrase.moras[j] = mora;
+                    }
+                }
+                query.accent_phrases = accent_phrases;
+                query
+            },
+            Self::Southern => {
+                let mut accent_phrases = query.accent_phrases.clone();
+                for accent_phrase in accent_phrases.iter_mut() {
+                    assert!(accent_phrase.moras.len() > 0);
+                    let pitches = accent_phrase.moras.iter().map(|m| m.pitch).filter(|pitch| *pitch != 0.0).collect::<Vec<f64>>();
+                    assert!(pitches.len() > 0);
+                    let avg_pitch = pitches.iter().sum::<f64>() / pitches.len() as f64;
+
+                    let accent = (accent_phrase.moras.len() - 1) as usize;
+                    for j in 0..accent_phrase.moras.len() {
+                        let mut mora = accent_phrase.moras[j].clone();
+                        let next_mora = j + 1;
+                        if next_mora < accent_phrase.moras.len() {
+                            let next_mora = accent_phrase.moras[next_mora].clone();
+                            if let Some(consonant) = &next_mora.consonant {
+                                if voiced_consonants.contains(&consonant.as_str()) {
+                                   if let Some(consonant) = &mora.consonant {
+                                       mora.consonant = self.make_voiced_consonant(consonant);
+                                   }
+                                }
+                            }
+                            if voiced_consonants.contains(&next_mora.vowel.as_str()) {
+                                mora.vowel = mora.vowel.to_uppercase();
+                            }
+                        }
+                        if j == accent_phrase.moras.len() - 1 {
+                            mora.vowel_length *= 1.75;
+                        }
+
+                        if j == 0 {
+                            mora.pitch = avg_pitch * 0.95;
+                        } else if j < accent {
+                            mora.pitch = avg_pitch * 1.04;
+                        } else if j == accent {
+                            mora.pitch = avg_pitch * 1.05;
+                        } else {
+                            mora.pitch = avg_pitch * 0.95;
+                        }
+                        accent_phrase.moras[j] = mora;
+                    }
+                }
+                query.accent_phrases = accent_phrases;
+                query
+            },
+        }
     }
 }
 
@@ -99,6 +212,7 @@ impl Runner {
     fn run(self) {
         let vvc = self.vvc;
         let mut receiver = self.receiver;
+
         loop {
             match receiver.blocking_recv() {
                 Some(EngineRequest::Synthesis(data)) => {
@@ -128,6 +242,8 @@ impl Runner {
                     let query = variant.preprocess_audio_query(query);
 
                     let json = serde_json::to_string(&query).unwrap();
+
+                    log::debug!("Synthesizing with JSON: {}", json);
 
                     let res = vvc.synthesis(&json, speaker_id, SynthesisOptions { enable_interrogative_upspeak: false });
 
