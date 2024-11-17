@@ -13,3 +13,19 @@
 VoiceVox Core 側が配布している音源モデルは自由なライセンス (OSS的な意味で) ではありませんので，利用規約にご注意ください。
 
 なお，このソフトウェアは， VoiceVox 公式のものではございません。
+
+## Usage
+
+使い方：
+
+```bash
+git clone https://github.com/metastable-void/tohoku-tts-voicevox.git
+cd tohoku-tts-voicevox
+./download-deps.sh
+./build.sh
+echo 'このように、日本語の任意の文章を方言風のアクセント・イントネーションで読みあげさせることができます。' | RUST_LOG=debug ./tohoku-tts-voicevox test-synthesis --variant northern --pitch-offset=-2 | ffplay -i -
+```
+
+## License
+
+Apache License, version 2.0.
