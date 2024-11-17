@@ -51,6 +51,78 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SynthesisOptions {
+    pub variant: SynthesisVariant,
+    pub params: SynthesisParams,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct SynthesisParams {
+    pitch_offset: f64,
+    pitch_range: f64,
+    speed_scale: f64,
+}
+
+impl Default for SynthesisParams {
+    fn default() -> Self {
+        Self {
+            pitch_offset: 0.0,
+            pitch_range: 1.0,
+            speed_scale: 1.0,
+        }
+    }
+}
+
+impl SynthesisParams {
+    pub const PITCH_OFFSET_MIN: f64 = -100.0;
+    pub const PITCH_OFFSET_MAX: f64 = 100.0;
+
+    pub const PITCH_RANGE_MIN: f64 = 0.01;
+    pub const PITCH_RANGE_MAX: f64 = 100.0;
+
+    pub const SPEED_SCALE_MIN: f64 = 0.01;
+    pub const SPEED_SCALE_MAX: f64 = 100.0;
+
+    pub fn new(pitch_offset: f64, pitch_range: f64, speed_scale: f64) -> Result<Self, EngineError> {
+        if pitch_offset <= Self::PITCH_OFFSET_MIN || pitch_offset >= Self::PITCH_OFFSET_MAX || pitch_offset.is_nan() {
+            return Err(EngineError::new(EngineErrorDescription::InvalidParameter));
+        }
+
+        if pitch_range <= Self::PITCH_RANGE_MIN || pitch_range >= Self::PITCH_RANGE_MAX || pitch_range.is_nan() {
+            return Err(EngineError::new(EngineErrorDescription::InvalidParameter));
+        }
+
+        if speed_scale <= Self::SPEED_SCALE_MIN || speed_scale >= Self::SPEED_SCALE_MAX  || speed_scale.is_nan() {
+            return Err(EngineError::new(EngineErrorDescription::InvalidParameter));
+        }
+
+        Ok(Self {
+            pitch_offset,
+            pitch_range,
+            speed_scale,
+        })
+    }
+
+    pub fn apply(&self, query: &mut types::AudioQuery) {
+        query.speed_scale *= self.speed_scale;
+        query.pitch_scale += self.pitch_offset / 100.0;
+        query.intonation_scale += self.pitch_range / 100.0;
+    }
+
+    pub fn pitch_offset(&self) -> f64 {
+        self.pitch_offset
+    }
+
+    pub fn pitch_range(&self) -> f64 {
+        self.pitch_range
+    }
+
+    pub fn speed_scale(&self) -> f64 {
+        self.speed_scale
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 pub enum SynthesisVariant {
     Northern,
@@ -66,14 +138,14 @@ impl SynthesisVariant {
             _ => Some(consonant.to_string()),
         }
     }
-    fn preprocess_audio_query(&self, query: types::AudioQuery) -> types::AudioQuery {
+    fn preprocess_audio_query(&self, query: types::AudioQuery, params: SynthesisParams) -> types::AudioQuery {
         let unvoiced_vowels = vec!["A", "I", "U", "E", "O"];
         let voiced_consonants = vec!["g", "z", "d", "b", "n"];
 
         let mut query = query.clone();
         query.speed_scale = 1.1;
         query.pitch_scale = 0.0;
-        query.intonation_scale = 0.9;
+        query.intonation_scale = 0.8;
         query.volume_scale = 1.0;
 
         match self {
@@ -141,9 +213,14 @@ impl SynthesisVariant {
                     }
                 }
                 query.accent_phrases = accent_phrases;
+
+                params.apply(&mut query);
                 query
             },
             Self::Southern => {
+                query.pitch_scale = 0.01;
+                query.intonation_scale = 0.7;
+
                 let mut accent_phrases = query.accent_phrases.clone();
                 for i in 0..accent_phrases.len() {
                     let accent_phrases_len = accent_phrases.len();
@@ -207,6 +284,8 @@ impl SynthesisVariant {
                     }
                 }
                 query.accent_phrases = accent_phrases;
+
+                params.apply(&mut query);
                 query
             },
         }
@@ -215,7 +294,7 @@ impl SynthesisVariant {
 
 #[derive(Debug)]
 enum EngineRequest {
-    Synthesis(EngineRequestData<(String, SynthesisVariant), Result<Vec<u8>, InternalError>>),
+    Synthesis(EngineRequestData<(String, SynthesisOptions), Result<Vec<u8>, InternalError>>),
 }
 
 struct Runner {
@@ -255,10 +334,10 @@ impl Runner {
         loop {
             match receiver.blocking_recv() {
                 Some(EngineRequest::Synthesis(data)) => {
-                    let (text, variant) = data.req;
+                    let (text, options) = data.req;
 
                     let speaker_id = 2u32;
-                    let query: types::AudioQuery = match vvc.audio_query(&text, speaker_id, AudioQueryOptions { kana: false }) {
+                    let query: types::AudioQuery = match vvc.audio_query(&text, speaker_id, vvcore::AudioQueryOptions { kana: false }) {
                         Ok(json) => {
                             match serde_json::from_str(json.as_str()) {
                                 Ok(v) => v,
@@ -278,13 +357,13 @@ impl Runner {
                         }
                     };
 
-                    let query = variant.preprocess_audio_query(query);
+                    let query = options.variant.preprocess_audio_query(query, options.params);
 
                     let json = serde_json::to_string(&query).unwrap();
 
                     log::debug!("Synthesizing with JSON: {}", json);
 
-                    let res = vvc.synthesis(&json, speaker_id, SynthesisOptions { enable_interrogative_upspeak: false });
+                    let res = vvc.synthesis(&json, speaker_id, vvcore::SynthesisOptions { enable_interrogative_upspeak: false });
 
                     match res {
                         Ok(wav) => {
@@ -315,14 +394,14 @@ impl EngineHandle {
         ENGINE.get().map(|handle| handle.clone()).ok_or(EngineError::new(EngineErrorDescription::NotInitialized))
     }
 
-    pub fn synthesize_blocking(&self, text: String, variant: SynthesisVariant) -> Result<Vec<u8>, InternalError> {
-        let (data, receiver) = EngineRequestData::new((text, variant));
+    pub fn synthesize_blocking(&self, text: String, options: SynthesisOptions) -> Result<Vec<u8>, InternalError> {
+        let (data, receiver) = EngineRequestData::new((text, options));
         self.sender.blocking_send(EngineRequest::Synthesis(data)).unwrap();
         receiver.blocking_recv().unwrap()
     }
 
-    pub async fn synthesize(&self, text: String, variant: SynthesisVariant) -> Result<Vec<u8>, InternalError> {
-        let (data, receiver) = EngineRequestData::new((text, variant));
+    pub async fn synthesize(&self, text: String, options: SynthesisOptions) -> Result<Vec<u8>, InternalError> {
+        let (data, receiver) = EngineRequestData::new((text, options));
         self.sender.send(EngineRequest::Synthesis(data)).await.unwrap();
         receiver.await.unwrap()
     }

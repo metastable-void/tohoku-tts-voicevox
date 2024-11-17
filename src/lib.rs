@@ -20,6 +20,8 @@ pub enum EngineErrorDescription {
     AlreadyInitialized,
     InitializationFailed,
     NotInitialized,
+    InvalidParameter,
+    SynthesisFailed,
     Unkown,
 }
 
