@@ -13,6 +13,7 @@ parking_lot = "0.12.3"
 log = "0.4.22"
 env_logger = "0.11.5"
 clap = { version = "4.5.21", features = ["derive"] }
+hound = "3.5.1"
 
 [profile.release]
 rpath = true

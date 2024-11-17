@@ -2,6 +2,7 @@
 use vvcore::*;
 use std::sync::OnceLock;
 use std::ffi::CString;
+use std::io::Cursor;
 
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
@@ -9,6 +10,7 @@ use std::path::Path;
 use std::fmt::Debug;
 
 use clap::ValueEnum;
+use hound::{WavReader, WavWriter};
 
 use crate::types;
 use crate::error::*;
@@ -339,50 +341,89 @@ impl Runner {
         let vvc = self.vvc;
         let mut receiver = self.receiver;
 
-        loop {
+        let sentence_splitter = vec!["。", "！", "？", "!", "?", "\n"];
+
+        'main_loop: loop {
             match receiver.blocking_recv() {
                 Some(EngineRequest::Synthesis(data)) => {
                     let (text, options) = data.req;
 
-                    let speaker_id = 2u32;
-                    let query: types::AudioQuery = match vvc.audio_query(&text, speaker_id, vvcore::AudioQueryOptions { kana: false }) {
-                        Ok(json) => {
-                            match serde_json::from_str(json.as_str()) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    log::error!("Failed to parse JSON: {}", e);
-                                    let err = InternalError::new("Failed to parse JSON");
-                                    let _ = data.res_sender.send(Err(err));
-                                    continue;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            let msg = VoicevoxCore::error_result_to_message(e);
-                            let err = InternalError::new(msg);
-                            let _ = data.res_sender.send(Err(err));
+                    let sentences = sentence_splitter.iter().fold(vec![text.clone()], |acc, splitter| {
+                        acc.iter().flat_map(|sentence| sentence.split(splitter)).map(|s| s.trim().to_string()).collect::<Vec<String>>()
+                    });
+
+                    let mut wav_sections = Vec::new();
+
+                    for text in sentences {
+                        if text.is_empty() {
                             continue;
                         }
-                    };
 
-                    let query = options.variant.preprocess_audio_query(query, options.params);
+                        let speaker_id = 2u32;
+                        let query: types::AudioQuery = match vvc.audio_query(&text, speaker_id, vvcore::AudioQueryOptions { kana: false }) {
+                            Ok(json) => {
+                                match serde_json::from_str(json.as_str()) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        log::error!("Failed to parse JSON: {}", e);
+                                        let err = InternalError::new("Failed to parse JSON");
+                                        let _ = data.res_sender.send(Err(err));
+                                        continue 'main_loop;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let msg = VoicevoxCore::error_result_to_message(e);
+                                let err = InternalError::new(msg);
+                                let _ = data.res_sender.send(Err(err));
+                                continue 'main_loop;
+                            }
+                        };
 
-                    let json = serde_json::to_string(&query).unwrap();
+                        let mut query = options.variant.preprocess_audio_query(query, options.params);
 
-                    log::debug!("Synthesizing with JSON: {}", json);
+                        query.output_sampling_rate = 24000;
+                        query.output_stereo = false;
+                        query.post_phoneme_length = 0.2;
 
-                    let res = vvc.synthesis(&json, speaker_id, vvcore::SynthesisOptions { enable_interrogative_upspeak: false });
+                        let json = serde_json::to_string(&query).unwrap();
 
-                    match res {
-                        Ok(wav) => {
-                            let _ = data.res_sender.send(Ok(wav.as_slice().to_owned()));
-                        },
-                        Err(e) => {
-                            let msg = VoicevoxCore::error_result_to_message(e);
-                            let err = InternalError::new(msg);
-                            let _ = data.res_sender.send(Err(err));
-                        },
+                        log::debug!("Synthesizing with JSON: {}", json);
+
+                        let res = vvc.synthesis(&json, speaker_id, vvcore::SynthesisOptions { enable_interrogative_upspeak: false });
+
+                        match res {
+                            Ok(wav) => {
+                                wav_sections.push(wav.as_slice().to_owned());
+                                //let _ = data.res_sender.send(Ok(wav.as_slice().to_owned()));
+                            },
+                            Err(e) => {
+                                let msg = VoicevoxCore::error_result_to_message(e);
+                                let err = InternalError::new(msg);
+                                let _ = data.res_sender.send(Err(err));
+                                continue 'main_loop;
+                            },
+                        }
                     }
+
+                    let mut wav = Cursor::new(Vec::new());
+                    let mut writer = WavWriter::new(&mut wav, hound::WavSpec {
+                        channels: 1,
+                        sample_rate: 24000,
+                        bits_per_sample: 16,
+                        sample_format: hound::SampleFormat::Int,
+                    }).unwrap();
+
+                    for section in wav_sections {
+                        let reader = WavReader::new(std::io::Cursor::new(section)).unwrap();
+                        for sample in reader.into_samples::<i16>() {
+                            writer.write_sample(sample.unwrap()).unwrap();
+                        }
+                    }
+
+                    writer.finalize().unwrap();
+
+                    let _ = data.res_sender.send(Ok(wav.into_inner()));
                 },
                 None => break,
             }
