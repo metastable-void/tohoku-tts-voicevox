@@ -158,7 +158,11 @@ impl SynthesisVariant {
                     let pitches = accent_phrase.moras.iter().map(|m| m.pitch).filter(|pitch| *pitch != 0.0).collect::<Vec<f64>>();
                     assert!(pitches.len() > 0);
                     let avg_pitch = pitches.iter().sum::<f64>() / pitches.len() as f64;
-                    let last_accent_phrase = i == accent_phrases_len - 1;
+                    let last_accent_phrase = match accent_phrase.clone().pause_mora {
+                        Some(mora) => mora.vowel == "pau" && mora.vowel_length >= 0.3,
+                        None => i == accent_phrases_len - 1,
+                    };
+                    
                     let avg_pitch = if last_accent_phrase {
                         avg_pitch * 0.97
                     } else {
@@ -191,7 +195,7 @@ impl SynthesisVariant {
                         }
                         let last_mora = (accent_phrase.moras.len() - 1) == j;
                         if last_mora {
-                            mora.vowel_length *= 1.75;
+                            mora.vowel_length *= 1.5;
                         }
 
                         if j < accent {
@@ -201,7 +205,7 @@ impl SynthesisVariant {
                         } else {
                             mora.pitch = avg_pitch;
                         }
-                        if i == accent_phrases_len - 1 && last_mora {
+                        if last_accent_phrase && last_mora {
                             mora.vowel_length *= 1.25;
                             if accent_phrase.is_interrogative {
                                 mora.pitch *= 1.02;
@@ -229,7 +233,11 @@ impl SynthesisVariant {
                     let pitches = accent_phrase.moras.iter().map(|m| m.pitch).filter(|pitch| *pitch != 0.0).collect::<Vec<f64>>();
                     assert!(pitches.len() > 0);
                     let avg_pitch = pitches.iter().sum::<f64>() / pitches.len() as f64;
-                    let last_accent_phrase = i == accent_phrases_len - 1;
+                    let last_accent_phrase = match accent_phrase.clone().pause_mora {
+                        Some(mora) => mora.vowel == "pau" && mora.vowel_length >= 0.3,
+                        None => i == accent_phrases_len - 1,
+                    };
+
                     let avg_pitch = if last_accent_phrase {
                         avg_pitch * 0.97
                     } else {
@@ -260,7 +268,7 @@ impl SynthesisVariant {
 
                         let last_mora = j == (accent_phrase.moras.len() - 1) || next_unvoiced && j == accent_phrase.moras.len() - 2;
                         if last_mora {
-                            mora.vowel_length *= 1.75;
+                            mora.vowel_length *= 1.25;
                         }
 
                         if j == 0 {
@@ -272,12 +280,12 @@ impl SynthesisVariant {
                         } else {
                             mora.pitch = avg_pitch * 0.95;
                         }
-                        if i == accent_phrases_len - 1 && last_mora {
+                        if last_accent_phrase && last_mora {
                             mora.vowel_length *= 1.25;
                             if accent_phrase.is_interrogative {
-                                mora.pitch *= 1.02;
+                                mora.pitch *= 1.04;
                             } else {
-                                mora.pitch *= 0.99;
+                                mora.pitch *= 1.0;
                             }
                         }
                         accent_phrase.moras[j] = mora;
