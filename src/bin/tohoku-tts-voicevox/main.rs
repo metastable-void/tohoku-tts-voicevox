@@ -1,16 +1,26 @@
 
+pub(crate) mod audio_output;
+
+
 use tohoku_tts_voicevox::{self as tohoku, SynthesisVariant, SynthesisParams, SynthesisOptions, EngineHandle};
 
 use std::io::Write;
 use std::io::Read;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub(crate) const PKG_NAME_JA: &str = "ジェネリック東北共通語読み上げソフト";
 
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
+pub enum OutputType {
+    Stdout,
+    AudioDevice,
+}
+
 #[derive(Debug, Parser)]
-#[command(about = "A simple CLI for Voicevox Core", long_about = None, version)]
+#[command(about = PKG_NAME_JA, long_about = None, version)]
 struct Cli {
     #[command(subcommand)]
     subcommand: Command,
@@ -41,6 +51,30 @@ enum Command {
         #[arg(long)]
         speak_sample_text: bool,
     },
+
+    /// Plays synthesized audio in one-shot mode
+    #[command(arg_required_else_help = true)]
+    PlaySynthesis {
+        /// Dialect variant
+        #[arg(long, value_enum)]
+        variant: SynthesisVariant,
+
+        /// Pitch offset
+        #[arg(long, default_value_t = SynthesisParams::default().pitch_offset())]
+        pitch_offset: f64,
+
+        /// Pitch range
+        #[arg(long, default_value_t = SynthesisParams::default().pitch_range())]
+        pitch_range: f64,
+
+        /// Speed scale
+        #[arg(long, default_value_t = SynthesisParams::default().speed_scale())]
+        speed_scale: f64,
+
+        /// Speak the program version and sample text (ignores input)
+        #[arg(long)]
+        speak_sample_text: bool,
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -56,21 +90,51 @@ fn main() -> anyhow::Result<()> {
                 variant,
             };
 
-            if speak_sample_text {
+            let wav = if speak_sample_text {
                 let text = sample_text();
-                test_synthesis(options, &text)?;
+                test_synthesis(options, &text)?
             } else {
                 let mut text = String::new();
                 let _ = std::io::stdin().read_to_string(&mut text)?;
-                test_synthesis(options, &text)?;
-            }
+                test_synthesis(options, &text)?
+            };
+            std::io::stdout().write_all(wav.as_slice())?;
+        },
+
+        Command::PlaySynthesis { variant, pitch_offset, pitch_range, speed_scale, speak_sample_text } => {
+            let params = SynthesisParams::new(pitch_offset, pitch_range, speed_scale)?;
+            let options = SynthesisOptions {
+                params,
+                variant,
+            };
+
+            let audio = audio_output::AudioPlayer::new()?;
+
+            let wav = if speak_sample_text {
+                let text = sample_text();
+                test_synthesis(options, &text)?
+            } else {
+                let mut text = String::new();
+                let _ = std::io::stdin().read_to_string(&mut text)?;
+                test_synthesis(options, &text)?
+            };
+
+            log::debug!("Processed blocks count: {}", audio.blocks_processed());
+            log::info!("Playing synthesized audio...");
+            audio.play_wav(std::io::Cursor::new(wav))?;
+
+            log::debug!("Waiting for audio to finish...");
+            audio.wait_blocking_until_empty();
+
+            log::info!("Audio playback finished.");
+            log::debug!("Processed blocks count: {}", audio.blocks_processed());
         },
     }
 
     Ok(())
 }
 
-fn test_synthesis(options: SynthesisOptions, text: &str) -> anyhow::Result<()> {
+fn test_synthesis(options: SynthesisOptions, text: &str) -> anyhow::Result<Vec<u8>> {
     let dir = "./voicevox_core/open_jtalk_dic_utf_8-1.11";
     
     tohoku::initialize(dir)?;
@@ -78,9 +142,8 @@ fn test_synthesis(options: SynthesisOptions, text: &str) -> anyhow::Result<()> {
     let handle = EngineHandle::new()?;
 
     let wav = handle.synthesize_blocking(text.to_owned(), options)?;
-    std::io::stdout().write_all(wav.as_slice())?;
 
-    Ok(())
+    Ok(wav)
 }
 
 fn sample_text() -> String {
