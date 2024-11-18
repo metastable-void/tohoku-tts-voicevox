@@ -61,10 +61,14 @@ impl AudioPlayer {
         let stream = match sample_format {
             cpal::SampleFormat::F32 => device.build_output_stream(&config, player.get_callback::<f32>(), err_fn, None)?,
             cpal::SampleFormat::F64 => device.build_output_stream(&config, player.get_callback::<f64>(), err_fn, None)?,
+            cpal::SampleFormat::I8 => device.build_output_stream(&config, player.get_callback::<i8>(), err_fn, None)?,
+            cpal::SampleFormat::U8 => device.build_output_stream(&config, player.get_callback::<u8>(), err_fn, None)?,
             cpal::SampleFormat::I16 => device.build_output_stream(&config, player.get_callback::<i16>(), err_fn, None)?,
             cpal::SampleFormat::U16 => device.build_output_stream(&config, player.get_callback::<u16>(), err_fn, None)?,
             cpal::SampleFormat::I32 => device.build_output_stream(&config, player.get_callback::<i32>(), err_fn, None)?,
             cpal::SampleFormat::U32 => device.build_output_stream(&config, player.get_callback::<u32>(), err_fn, None)?,
+            cpal::SampleFormat::I64 => device.build_output_stream(&config, player.get_callback::<i64>(), err_fn, None)?,
+            cpal::SampleFormat::U64 => device.build_output_stream(&config, player.get_callback::<u64>(), err_fn, None)?,
             _ => {
                 return Err(anyhow::anyhow!("Unsupported sample format"));
             },
