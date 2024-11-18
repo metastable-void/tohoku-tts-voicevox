@@ -109,7 +109,8 @@ fn main() -> anyhow::Result<()> {
             let speakers = get_speakers()?;
 
             if json {
-                let json = serde_json::to_string_pretty(&speakers)?;
+                let mut json = serde_json::to_string_pretty(&speakers)?;
+                json.push('\n');
                 std::io::stdout().write_all(json.as_bytes())?;
             } else {
                 println!("SPEAKER_ID\tSPEAKER_NAME\tSTYLE_NAME");
