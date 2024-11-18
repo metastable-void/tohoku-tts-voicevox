@@ -16,6 +16,7 @@ use crate::types;
 use crate::error::*;
 use crate::EngineErrorDescription;
 use crate::EngineError;
+use crate::TextSplitter;
 
 static ENGINE: OnceLock<EngineHandle> = OnceLock::new();
 
@@ -341,16 +342,14 @@ impl Runner {
         let vvc = self.vvc;
         let mut receiver = self.receiver;
 
-        let sentence_splitter = vec!["。", "！", "？", "!", "?", "\n"];
+        let text_splitter = TextSplitter::new();
 
         'main_loop: loop {
             match receiver.blocking_recv() {
                 Some(EngineRequest::Synthesis(data)) => {
                     let (text, options) = data.req;
 
-                    let sentences = sentence_splitter.iter().fold(vec![text.clone()], |acc, splitter| {
-                        acc.iter().flat_map(|sentence| sentence.split(splitter)).map(|s| s.trim().to_string()).collect::<Vec<String>>()
-                    });
+                    let sentences = text_splitter.split_text(&text);
 
                     let mut wav_sections = Vec::new();
 

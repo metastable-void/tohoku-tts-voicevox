@@ -22,15 +22,28 @@ VoiceVox Core 側が配布している音源モデルは自由なライセンス
 
 ## Usage
 
-使い方：
+設定：
 
 ```bash
 git clone https://github.com/metastable-void/tohoku-tts-voicevox.git
 cd tohoku-tts-voicevox
 ./download-deps.sh
 ./build.sh
-RUST_LOG=debug ./tohoku-tts-voicevox test-synthesis --variant northern --pitch-offset=-2 --speak-sample-text | ffplay -i -
 ```
+
+北東北版の例：
+
+```bash
+./tohoku-tts-voicevox play-synthesis --variant=northern --pitch-offset=-2 --speed-scale=0.9 --speak-sample-text
+```
+
+南東北版の例：
+
+```bash
+./tohoku-tts-voicevox play-synthesis --variant=southern --speed-scale=0.9 --speak-sample-text
+```
+
+詳しくは， `./tohoku-tts-voicevox help` を実行してください。
 
 ## License
 

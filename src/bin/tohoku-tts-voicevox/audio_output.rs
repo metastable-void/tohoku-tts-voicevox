@@ -155,6 +155,9 @@ impl AudioPlayer {
     }
 
     pub fn play(&self, chunk: Vec<i16>) {
+        if chunk.is_empty() {
+            return;
+        }
         self.chunk_queue.lock().push_back(chunk);
         self.is_playing.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -183,6 +186,9 @@ impl AudioPlayer {
         let orig_sample_format = spec.sample_format;
         let orig_bit_depth = spec.bits_per_sample;
         let orig_sample_count = reader.len();
+        if orig_sample_count == 0 {
+            return Ok(());
+        }
 
         let target_sample_rate = self.sample_rate;
         let resample_ratio = target_sample_rate as f64 / orig_sample_rate as f64;

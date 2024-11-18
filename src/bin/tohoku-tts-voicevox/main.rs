@@ -2,7 +2,7 @@
 pub(crate) mod audio_output;
 
 
-use tohoku_tts_voicevox::{self as tohoku, SynthesisVariant, SynthesisParams, SynthesisOptions, EngineHandle};
+use tohoku_tts_voicevox::{self as tohoku, SynthesisVariant, SynthesisParams, SynthesisOptions, EngineHandle, TextSplitter};
 
 use std::io::Write;
 use std::io::Read;
@@ -78,12 +78,17 @@ enum Command {
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let args = Cli::parse();
 
     match args.subcommand {
         Command::TestSynthesis { variant, pitch_offset, pitch_range, speed_scale, speak_sample_text } => {
+            log::info!("Initializing...");
+            let dir = "./voicevox_core/open_jtalk_dic_utf_8-1.11";
+            initialize(dir)?;
+            log::info!("Initialized.");
+
             let params = SynthesisParams::new(pitch_offset, pitch_range, speed_scale)?;
             let options = SynthesisOptions {
                 params,
@@ -102,6 +107,11 @@ fn main() -> anyhow::Result<()> {
         },
 
         Command::PlaySynthesis { variant, pitch_offset, pitch_range, speed_scale, speak_sample_text } => {
+            log::info!("Initializing...");
+            let dir = "./voicevox_core/open_jtalk_dic_utf_8-1.11";
+            initialize(dir)?;
+            log::info!("Initialized.");
+            
             let params = SynthesisParams::new(pitch_offset, pitch_range, speed_scale)?;
             let options = SynthesisOptions {
                 params,
@@ -109,21 +119,26 @@ fn main() -> anyhow::Result<()> {
             };
 
             let audio = audio_output::AudioPlayer::new()?;
+            let text_splitter = TextSplitter::new();
 
-            let wav = if speak_sample_text {
-                let text = sample_text();
-                test_synthesis(options, &text)?
+            let text = if speak_sample_text {
+                sample_text()
             } else {
                 let mut text = String::new();
                 let _ = std::io::stdin().read_to_string(&mut text)?;
-                test_synthesis(options, &text)?
+                text
             };
 
-            log::debug!("Processed blocks count: {}", audio.blocks_processed());
-            log::info!("Playing synthesized audio...");
-            audio.play_wav(std::io::Cursor::new(wav))?;
+            let sentences = text_splitter.split_text(&text);
 
-            log::debug!("Waiting for audio to finish...");
+            for sentence in sentences {
+                let wav = test_synthesis(options.clone(), &sentence)?;
+
+                log::info!("Requesting speech: {}", sentence);
+                audio.play_wav(std::io::Cursor::new(wav))?;
+            }
+
+            log::info!("Waiting for audio to finish...");
             audio.wait_blocking_until_empty();
 
             log::info!("Audio playback finished.");
@@ -134,11 +149,12 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn test_synthesis(options: SynthesisOptions, text: &str) -> anyhow::Result<Vec<u8>> {
-    let dir = "./voicevox_core/open_jtalk_dic_utf_8-1.11";
-    
+fn initialize(dir: &str) -> anyhow::Result<()> {
     tohoku::initialize(dir)?;
+    Ok(())
+}
 
+fn test_synthesis(options: SynthesisOptions, text: &str) -> anyhow::Result<Vec<u8>> {
     let handle = EngineHandle::new()?;
 
     let wav = handle.synthesize_blocking(text.to_owned(), options)?;
@@ -150,7 +166,7 @@ fn sample_text() -> String {
     format!(r#"
 これは、{}、バージョン{}です。
 これは、ジェネリックな東北共通語っぽい音声合成ができるソフトです。 
-このように、一般的な現代日本語の任意の文章を方言風のアクセント・イントネーションで読みあげさせることができます。
+このように、一般的な現代日本語の任意の文章を方言風のアクセントやイントネーションで読みあげさせることができます。
 いわゆる標準語を訛らせて発話させることを想定したもので、伝統的な方言、例えば津軽弁、南部弁、ケセン語、会津弁などを再現することを目的としたものではありません。
 小規模な簡易ネイティブチェックを行い、合成音声の範囲内で自然さには配慮しておりますが、精密に特定の場所の方言に準じてつくっているわけではありません。
 また、方言の参照用として使うことを想定したものではありません。

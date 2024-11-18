@@ -36,3 +36,29 @@ impl ErrorDescription for EngineErrorDescription {
 }
 
 pub type EngineError = GenericError<EngineErrorDescription>;
+
+pub struct TextSplitter {
+    sentence_splitter: Vec<String>,
+}
+
+impl Default for TextSplitter {
+    fn default() -> Self {
+        Self {
+            sentence_splitter: vec!["。".to_string(), "？".to_string(), "！".to_string(), "!".to_string(), "?".to_string(), "\n".to_string()],
+        }
+    }
+}
+
+impl TextSplitter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn split_text(&self, text: &str) -> Vec<String> {
+        let sentences = self.sentence_splitter.iter().fold(vec![text.to_owned()], |acc, splitter| {
+            acc.iter().flat_map(|sentence| sentence.split(splitter)).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<String>>()
+        });
+
+        sentences
+    }
+}
