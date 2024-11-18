@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
             };
 
             let wav = if speak_sample_text {
-                let text = sample_text();
+                let text = sample_text(variant);
                 test_synthesis(options, &text)?
             } else {
                 let mut text = String::new();
@@ -122,7 +122,7 @@ fn main() -> anyhow::Result<()> {
             let text_splitter = TextSplitter::new();
 
             let text = if speak_sample_text {
-                sample_text()
+                sample_text(variant)
             } else {
                 let mut text = String::new();
                 let _ = std::io::stdin().read_to_string(&mut text)?;
@@ -162,10 +162,15 @@ fn test_synthesis(options: SynthesisOptions, text: &str) -> anyhow::Result<Vec<u
     Ok(wav)
 }
 
-fn sample_text() -> String {
+fn sample_text(variant: SynthesisVariant) -> String {
+    let variant = match variant {
+        SynthesisVariant::Northern => "北東北",
+        SynthesisVariant::Southern => "南東北",
+    };
     format!(r#"
 これは、{}、バージョン{}です。
 これは、ジェネリックな東北共通語っぽい音声合成ができるソフトです。 
+現在、{}ふうのアクセントで読み上げています。
 このように、一般的な現代日本語の任意の文章を方言風のアクセントやイントネーションで読みあげさせることができます。
 いわゆる標準語を訛らせて発話させることを想定したもので、伝統的な方言、例えば津軽弁、南部弁、ケセン語、会津弁などを再現することを目的としたものではありません。
 小規模な簡易ネイティブチェックを行い、合成音声の範囲内で自然さには配慮しておりますが、精密に特定の場所の方言に準じてつくっているわけではありません。
@@ -173,5 +178,5 @@ fn sample_text() -> String {
 ご注意ください。
 このソフトウェアは、アパッチライセンス・バージョン2.0のもとでライセンスされています。
 また、このソフトウェアは、ボイスボックス・コアを使用しております。
-"#, PKG_NAME_JA, VERSION.replace(".", "てん"))
+"#, PKG_NAME_JA, VERSION.replace(".", "てん"), variant)
 }
