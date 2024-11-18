@@ -1,5 +1,8 @@
 
+use serde::Deserialize;
+use serde::Serialize;
 use vvcore::*;
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::ffi::CString;
 use std::io::Cursor;
@@ -58,6 +61,7 @@ where
 pub struct SynthesisOptions {
     pub variant: SynthesisVariant,
     pub params: SynthesisParams,
+    pub speaker_id: u32,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -306,11 +310,49 @@ impl SynthesisVariant {
 #[derive(Debug)]
 enum EngineRequest {
     Synthesis(EngineRequestData<(String, SynthesisOptions), Result<Vec<u8>, InternalError>>),
+    GetSpeakers(EngineRequestData<(), Result<Vec<Speaker>, InternalError>>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Speaker {
+    /// ID for speaker/style pair
+    pub speaker_id: u32,
+
+    /// Name of the speaker
+    pub speaker_name: String,
+
+    /// UUID of the speaker
+    pub speaker_uuid: String,
+
+    /// Version of the speaker
+    pub style_name: String,
+}
+
+fn get_speakers() -> Result<BTreeMap<u32, Speaker>, InternalError> {
+    let speakers_metas = VoicevoxCore::get_metas_json();
+    let speakers: Vec<types::Speaker> = serde_json::from_str(speakers_metas).map_err(|_| "Failed to load speakers metadata")?;
+    let mut result = BTreeMap::new();
+    for speaker in speakers {
+        for style in speaker.styles {
+            if style.r#type.is_some() {
+                continue;
+            }
+
+            result.insert(style.id, Speaker {
+                speaker_id: style.id,
+                speaker_name: speaker.name.clone(),
+                speaker_uuid: speaker.speaker_uuid.clone(),
+                style_name: style.name.clone(),
+            });
+        }
+    }
+    Ok(result)
 }
 
 struct Runner {
     vvc: VoicevoxCore,
     receiver: mpsc::Receiver<EngineRequest>,
+    speakers: BTreeMap<u32, Speaker>,
 }
 
 impl Runner {
@@ -321,12 +363,19 @@ impl Runner {
             return Err(InternalError::new("Failed to convert path to CString"));
         };
         let vvc = VoicevoxCore::new_from_options(AccelerationMode::Auto, 0, true, dir.as_c_str()).unwrap();
+
+        let speakers = get_speakers()?;
+
+        for speaker in speakers.values() {
+            log::debug!("Found speaker: speaker_id={}, speaker_name={}, style={}", speaker.speaker_id, speaker.speaker_name, speaker.style_name);
+        }
         
         let (req_sender, req_receiver) = mpsc::channel(100);
 
         let runner = Runner {
             vvc,
             receiver: req_receiver,
+            speakers,
         };
 
         std::thread::spawn(move || {
@@ -346,6 +395,11 @@ impl Runner {
 
         'main_loop: loop {
             match receiver.blocking_recv() {
+                Some(EngineRequest::GetSpeakers(data)) => {
+                    let speakers = self.speakers.values().cloned().collect();
+                    let _ = data.res_sender.send(Ok(speakers));
+                },
+
                 Some(EngineRequest::Synthesis(data)) => {
                     let (text, options) = data.req;
 
@@ -358,8 +412,7 @@ impl Runner {
                             continue;
                         }
 
-                        let speaker_id = 2u32;
-                        let query: types::AudioQuery = match vvc.audio_query(&text, speaker_id, vvcore::AudioQueryOptions { kana: false }) {
+                        let query: types::AudioQuery = match vvc.audio_query(&text, options.speaker_id, vvcore::AudioQueryOptions { kana: false }) {
                             Ok(json) => {
                                 match serde_json::from_str(json.as_str()) {
                                     Ok(v) => v,
@@ -389,7 +442,7 @@ impl Runner {
 
                         log::debug!("Synthesizing with JSON: {}", json);
 
-                        let res = vvc.synthesis(&json, speaker_id, vvcore::SynthesisOptions { enable_interrogative_upspeak: false });
+                        let res = vvc.synthesis(&json, options.speaker_id, vvcore::SynthesisOptions { enable_interrogative_upspeak: false });
 
                         match res {
                             Ok(wav) => {
@@ -440,6 +493,18 @@ pub struct EngineHandle {
 impl EngineHandle {
     pub fn new() -> Result<EngineHandle, EngineError> {
         ENGINE.get().map(|handle| handle.clone()).ok_or(EngineError::new(EngineErrorDescription::NotInitialized))
+    }
+
+    pub fn get_speakers_blocking(&self) -> Result<Vec<Speaker>, InternalError> {
+        let (data, receiver) = EngineRequestData::new(());
+        self.sender.blocking_send(EngineRequest::GetSpeakers(data)).unwrap();
+        receiver.blocking_recv().unwrap()
+    }
+
+    pub async fn get_speakers(&self) -> Result<Vec<Speaker>, InternalError> {
+        let (data, receiver) = EngineRequestData::new(());
+        self.sender.send(EngineRequest::GetSpeakers(data)).await.unwrap();
+        receiver.await.unwrap()
     }
 
     pub fn synthesize_blocking(&self, text: String, options: SynthesisOptions) -> Result<Vec<u8>, InternalError> {

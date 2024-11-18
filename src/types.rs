@@ -32,3 +32,18 @@ pub struct Mora {
     pub consonant: Option<String>,
     pub consonant_length: Option<f64>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpeakerStyle {
+    pub name: String,
+    pub id: u32,
+    pub r#type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Speaker {
+    pub name: String,
+    pub styles: Vec<SpeakerStyle>,
+    pub speaker_uuid: String,
+    pub version: String,
+}
