@@ -210,7 +210,7 @@ impl AudioPlayer {
                     .map(|sample| format_sample::<f64>(sample.unwrap())).collect::<Vec<_>>()
             },
             _ => {
-                return Err(anyhow::anyhow!("Unsupported sample format"));
+                return Err(anyhow::anyhow!("Unsupported sample format: {:?} / {}", orig_sample_format, orig_bit_depth));
             }
         };
 
